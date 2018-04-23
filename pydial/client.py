@@ -39,7 +39,7 @@ DeviceStatus = namedtuple("DeviceStatus",
 
 AppStatus = namedtuple("AppStatus", ["app_id", "description", "state",
                                      "options", "service_url",
-                                     "service_protocols"])
+                                     "service_protocols","rel","href","response"])
 
 # Device status XML constants
 XML_NS_UPNP_DEVICE = "{urn:schemas-upnp-org:device-1-0}"
@@ -66,30 +66,49 @@ class DialClient(requests.Session):
                return url + app_id
           else:
                return url
-     def get_app_status(self, appid=None):
+     def get_app_status(self, appid=''):
           """Returns the status of the requested app as a named tuple."""
           if not self.app_path:
                raise AttributeError('Uninitialized application URL.')
-
+        
           url = _BASE_URL.format(self.app_host, self.app_port, self.app_path) \
                     + appid
+          print url
           req = requests.Request('GET', url).prepare()
           response = self.send(req)
-
+          
           # FIXME: Raise an exception here?
           # TODO: Look for 404 in case app is not present
           if response.status_code == 204:
-               return None
-
-          status_el = ET.fromstring(response.text.encode("UTF-8"))
+              return None
+          if response.status_code == 404:
+              return None
+          if response == None:
+              print 'null response'
+              return None
+          texts = response.text.encode("UTF-8")
+          print texts
+          if len(texts) == 0:
+              print 'no response'
+              return None
+          status_el = ET.fromstring(texts)
           options = status_el.find(XML_NS_DIAL + "options").attrib
-
+            
           app_id = _read_xml_element(status_el, XML_NS_DIAL,
                                    "name", "Unknown application")
 
           state = _read_xml_element(status_el, XML_NS_DIAL,
                                   "state", "unknown")
-
+          
+          links = status_el.find(XML_NS_DIAL+"link")
+          
+          if links is not None:
+              rel = links.attrib['rel']
+              href = links.attrib['href']
+          else:
+              rel = ''
+              href = ''
+              
           service_el = status_el.find(XML_NS_CAST + "servicedata")
 
           if service_el is not None:
@@ -114,7 +133,7 @@ class DialClient(requests.Session):
           else:
                description = app_id
 
-          return AppStatus(app_id, description, state, options, service_url, protocols)
+          return AppStatus(app_id, description, state, options, service_url, protocols,rel,href,response)
 
 
      def launch_app(self, appid, args=None):
@@ -123,26 +142,27 @@ class DialClient(requests.Session):
 
           url = _BASE_URL.format(self.app_host, self.app_port, self.app_path) \
                     + appid
-          header = ''
+          header = {}
           if not args:
-               header = 'Content-Length: 0'
+               header = {'Content-Length': '0'}
           req = requests.Request('POST', url, data=args, headers=header)
           prepped = req.prepare()
           response = self.send(prepped)
-          print response
+          return response
 
-     def quit_app(self, app_id=None):
+     def quit_app(self, app_id=''):
           """ Quits specified application if it is running.
           If no app_id specified will quit current running app. """
 
-          if not app_id:
-               status = self.get_app_status(app_id)
-
+          status = self.get_app_status(app_id)
           if status:
-               app_id = status.app_id
+             if not app_id:
+                 app_id = status.app_id
 
-          if app_id:
-               self.delete(self._craft_app_url(app_id))
+             if app_id:
+                 url = self._craft_app_url(app_id+'/'+status.href)
+                 print url
+                 self.delete(url)
 
      def get_device_description(self):
           """ Returns the device status as a named tuple. Initializes the
@@ -158,7 +178,8 @@ class DialClient(requests.Session):
                     self.app_host = app_url.hostname
                     self.app_port = app_url.port
                     self.app_path = app_url.path
-
+                    if not self.app_path.endswith("/"):
+                        self.app_path+="/"
                status_el = ET.fromstring(req.text.encode("UTF-8"))
 
                device_info_el = status_el.find(XML_NS_UPNP_DEVICE + "device")
