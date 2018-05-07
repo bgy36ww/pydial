@@ -244,10 +244,10 @@ def discover(max_devices=None, timeout=DISCOVER_TIMEOUT, verbose=False):
                               # Skip since not key-value pair
                               continue
 
-                         if key == "LOCATION":
+                         if key.lower() == "location":
                               found_url = value
 
-                         elif key == "ST":
+                         elif key.lower() == "st":
                               found_st = value
 
                     if found_st == SSDP_ST and found_url:
